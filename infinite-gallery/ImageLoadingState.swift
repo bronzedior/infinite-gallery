@@ -10,6 +10,6 @@ import UIKit
 enum ImageLoadingState {
     case idle
     case loading
-    case success(UIImage)
+    case success(url: String)
     case error(String)
 }
