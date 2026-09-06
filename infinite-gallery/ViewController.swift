@@ -38,6 +38,8 @@ class ViewController: UIViewController {
     let visibleCacheRange = 5
     var lastLoadedRange: ClosedRange<Int>? = nil
     
+    var didLoadInitialImages = false
+    
     override init(nibName nibNameOrNil: String?, bundle nibBundleOrNil: Bundle?) {
         let layout = UICollectionViewFlowLayout()
         layout.scrollDirection = .vertical
@@ -60,7 +62,7 @@ class ViewController: UIViewController {
         
         setupHeader()
         setupCollectionView()
-        loadInitialImages()
+//        loadInitialImages()
     }
     
     override func viewDidLayoutSubviews() {
@@ -76,6 +78,11 @@ class ViewController: UIViewController {
                 layout.itemSize = newItemSize
                 layout.invalidateLayout()
             }
+            
+            if !didLoadInitialImages, newItemSize.width > 0, newItemSize.height > 0 {
+                        didLoadInitialImages = true
+                        loadInitialImages()
+                    }
         }
     }
     
@@ -106,6 +113,7 @@ class ViewController: UIViewController {
     
     func setupCollectionView() {
         collectionView.dataSource = self
+        collectionView.prefetchDataSource = self
         collectionView.delegate = self
         collectionView.register(ImageCell.self, forCellWithReuseIdentifier: "ImageCell")
         collectionView.showsVerticalScrollIndicator = false
@@ -132,23 +140,24 @@ class ViewController: UIViewController {
     
     func fetchImage(at index: Int) {
         guard index < imageStates.count else { return }
-        
+        guard currentScreenSize.width > 0, currentScreenSize.height > 0 else { return }
+
         imageStates[index] = .loading
         collectionView.reloadItems(at: [IndexPath(item: index, section: 0)])
-        
+
         let width = Int(currentScreenSize.width)
         let height = Int(currentScreenSize.height)
-        
+
         imageService.fetchImage(at: index, width: width, height: height) { [weak self] fetchedIndex, image, error in
             guard let self = self, fetchedIndex < self.imageStates.count else { return }
-            
+
             if let image = image {
                 ImageCache.shared.set(image, for: fetchedIndex)
                 self.imageStates[fetchedIndex] = .success(url: "img_\(fetchedIndex)")
             } else {
                 self.imageStates[fetchedIndex] = .error("Failed to load")
             }
-            
+
             self.collectionView.reloadItems(at: [IndexPath(item: fetchedIndex, section: 0)])
         }
     }
@@ -156,18 +165,17 @@ class ViewController: UIViewController {
     func loadMoreImages() {
         guard !isLoadingMore else { return }
         isLoadingMore = true
-        
+
         let currentCount = imageStates.count
         let newCount = currentCount + 5
-        
-        imageStates.append(contentsOf: Array(repeating: ImageLoadingState.idle, count: 5))
-        
+
         var indexPaths: [IndexPath] = []
         for i in currentCount..<newCount {
             indexPaths.append(IndexPath(item: i, section: 0))
         }
-        
+
         collectionView.performBatchUpdates({
+            self.imageStates.append(contentsOf: Array(repeating: ImageLoadingState.idle, count: 5))
             self.collectionView.insertItems(at: indexPaths)
         }) { _ in
             for i in currentCount..<newCount {
@@ -196,6 +204,12 @@ class ViewController: UIViewController {
             let toUnload = lastRange.filter { !shouldLoadRange.contains($0) }
             for i in toUnload {
                 ImageCache.shared.remove(for: i)
+                // TODO: Further Investigation
+                // Setiap user scroll up akan re-fetch data
+                // Pertimbangan memory/cpu usage nya seperti apa
+                if case .success = imageStates[i] {
+                    imageStates[i] = .idle
+                }
             }
         }
         
@@ -208,7 +222,11 @@ class ViewController: UIViewController {
     
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
-        ImageCache.shared.removeAll()
+        // TODO: Further Investigation
+        // Setiap user scroll ke image ke-N dan keluar dari app
+        // Ketika membuka app kembali dan scroll up
+        // Image tidak berhasil ke fetch / re-fetch
+        // ImageCache.shared.removeAll()
     }
 }
 
@@ -221,6 +239,30 @@ extension ViewController: UICollectionViewDataSource {
         let cell = collectionView.dequeueReusableCell(withReuseIdentifier: "ImageCell", for: indexPath) as! ImageCell
         cell.updateState(imageStates[indexPath.item])
         return cell
+    }
+}
+
+extension ViewController: UICollectionViewDataSourcePrefetching {
+    
+    func collectionView(_ collectionView: UICollectionView, prefetchItemsAt indexPaths: [IndexPath]) {
+        for indexPath in indexPaths {
+            let index = indexPath.item
+            guard index < imageStates.count else { continue }
+            if case .idle = imageStates[index] {
+                fetchImage(at: index)
+            }
+        }
+    }
+    
+    func collectionView(_ collectionView: UICollectionView, cancelPrefetchingForItemsAt indexPaths: [IndexPath]) {
+        for indexPath in indexPaths {
+            let index = indexPath.item
+            guard index < imageStates.count else { continue }
+            imageService.cancelFetch(at: index)
+            if case .loading = imageStates[index] {
+                imageStates[index] = .idle
+            }
+        }
     }
 }
 

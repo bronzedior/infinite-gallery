@@ -29,7 +29,10 @@ class ImageCache {
     }
     
     func set(_ image: UIImage, for index: Int) {
-        let cost = Int(image.size.width * image.size.height * 4)
+        // hipotesis: retina display scale
+        // iphone 17 retina display pixels = 1206 x 2622 (3x scale)
+        // non-retina equivalent = 402 x 874
+        let cost = Int(image.size.width * image.scale * image.size.height * image.scale * 4)
         queue.async(flags: .barrier) {
             self.cache.setObject(image, forKey: NSNumber(value: index), cost: cost)
         }

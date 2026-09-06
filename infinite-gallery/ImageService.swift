@@ -8,9 +8,14 @@
 import UIKit
 
 class ImageService {
-    let cache = NSCache<NSString, UIImage>()
-    var activeTasks: [Int: URLSessionDataTask] = [:]
-    let queue = DispatchQueue(label: "com.imagegallery.service")
+    let fetchQueue: OperationQueue = {
+        let q = OperationQueue()
+        q.maxConcurrentOperationCount = 4
+        return q
+    }()
+    
+    var operations: [Int: ImageFetchOperation] = [:]
+    let lock = NSLock()
     
     func fetchImage(
         at index: Int,
@@ -25,39 +30,31 @@ class ImageService {
             return
         }
         
-        let task = URLSession.shared.dataTask(with: url) { [weak self] data, _, error in
-            defer {
-                self?.queue.sync {
-                    self?.activeTasks[index] = nil
-                }
-            }
-            
+        let op = ImageFetchOperation(index: index, url: url) { idx, image, error in
             DispatchQueue.main.async {
-                if let data = data, let image = UIImage(data: data) {
-                    completion(index, image, nil)
-                } else {
-                    completion(index, nil, error ?? NSError(domain: "ImageService", code: -2))
-                }
+                completion(idx, image, error)
             }
         }
         
-        queue.sync {
-            activeTasks[index] = task
-        }
+        lock.lock()
+        operations[index] = op
+        lock.unlock()
         
-        task.resume()
+        fetchQueue.addOperation(op)
     }
     
     func cancelFetch(at index: Int) {
-        queue.sync {
-            activeTasks.removeValue(forKey: index)?.cancel()
-        }
+        lock.lock()
+        let op = operations.removeValue(forKey: index)
+        lock.unlock()
+        op?.cancel()
     }
     
     func cancelAllFetches() {
-        queue.sync {
-            activeTasks.values.forEach { $0.cancel() }
-            activeTasks.removeAll()
-        }
+        lock.lock()
+        let ops = Array(operations.values)
+        operations.removeAll()
+        lock.unlock()
+        ops.forEach { $0.cancel() }
     }
 }
