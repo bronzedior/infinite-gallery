@@ -32,13 +32,23 @@ class ImageService {
             return
         }
         
-        let op = ImageFetchOperation(index: index, imageID: imageID, url: url) { idx, pid, image, error in
-            DispatchQueue.main.async {
-                completion(idx, pid, image, error)
-            }
+        lock.lock()
+        
+        if let existing = operations[index],
+           existing.imageID == imageID,
+           existing.url == url,
+           !existing.isCancelled,
+           existing.addCompletion(completion) {
+            lock.unlock()
+            return // Coalesce: reuse existing request
         }
         
-        lock.lock()
+        operations[index]?.cancel()
+        
+        let op = ImageFetchOperation(index: index, imageID: imageID, url: url)
+        let added = op.addCompletion(completion)
+        assert(added, "addCompletion should succeed for newly created operation")
+        
         operations[index] = op
         lock.unlock()
         

@@ -11,7 +11,11 @@ class ImageFetchOperation: Operation, @unchecked Sendable {
     let index: Int
     let imageID: Int
     let url: URL
-    let completion: (Int, Int, UIImage?, Error?) -> Void
+    
+    let completionLock = NSLock()
+    var completions: [(Int, Int, UIImage?, Error?) -> Void] = []
+    var didNotify = false
+    
     var task: URLSessionDataTask?
     
     var _isExecuting = false
@@ -21,11 +25,21 @@ class ImageFetchOperation: Operation, @unchecked Sendable {
     override var isExecuting: Bool { _isExecuting }
     override var isFinished: Bool { _isFinished }
     
-    init(index: Int, imageID: Int, url: URL, completion: @escaping (Int, Int, UIImage?, Error?) -> Void) {
+    init(index: Int, imageID: Int, url: URL) {
         self.index = index
         self.imageID = imageID
         self.url = url
-        self.completion = completion
+    }
+    
+    func addCompletion(_ completion: @escaping (Int, Int, UIImage?, Error?) -> Void) -> Bool {
+        completionLock.lock()
+        defer { completionLock.unlock() }
+        
+        if didNotify || isCancelled {
+            return false
+        }
+        completions.append(completion)
+        return true
     }
     
     override func start() {
@@ -42,14 +56,25 @@ class ImageFetchOperation: Operation, @unchecked Sendable {
             
             guard !self.isCancelled else { return }
             
-            if let data = data, let image = UIImage(data: data) {
-                self.completion(self.index, self.imageID, image, nil)
-            } else {
-                self.completion(self.index, self.imageID, nil, error)
-            }
+            let image = (data != nil) ? UIImage(data: data!) : nil
+            self.notifyCompletions(image: image, error: error)
         }
         
         task?.resume()
+    }
+    
+    func notifyCompletions(image: UIImage?, error: Error?) {
+        completionLock.lock()
+        let callbackList = completions
+        completions.removeAll()
+        didNotify = true
+        completionLock.unlock()
+        
+        DispatchQueue.main.async {
+            for callback in callbackList {
+                callback(self.index, self.imageID, image, error)
+            }
+        }
     }
     
     // jika user scroll terlalu cepat
