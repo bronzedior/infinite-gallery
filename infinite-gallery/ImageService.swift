@@ -14,25 +14,27 @@ class ImageService {
         return q
     }()
     
+    // race condition??
     var operations: [Int: ImageFetchOperation] = [:]
     let lock = NSLock()
     
     func fetchImage(
+        imageID: Int,
         at index: Int,
         width: Int,
         height: Int,
-        completion: @escaping (Int, UIImage?, Error?) -> Void
+        completion: @escaping (Int, Int, UIImage?, Error?) -> Void
     ) {
-        let randomId = Int.random(in: 1...1000000)
+        //        let randomId = Int.random(in: 1...1000000)
         
-        guard let url = URL(string: "https://picsum.photos/\(width)/\(height)?random=\(randomId)") else {
-            completion(index, nil, NSError(domain: "ImageService", code: -1))
+        guard let url = URL(string: "https://picsum.photos/seed/\(imageID)/\(width)/\(height)") else {
+            completion(index, imageID, nil, NSError(domain: "ImageService", code: -1))
             return
         }
         
-        let op = ImageFetchOperation(index: index, url: url) { idx, image, error in
+        let op = ImageFetchOperation(index: index, imageID: imageID, url: url) { idx, pid, image, error in
             DispatchQueue.main.async {
-                completion(idx, image, error)
+                completion(idx, pid, image, error)
             }
         }
         

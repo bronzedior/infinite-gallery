@@ -80,14 +80,12 @@ class ImageCell: UICollectionViewCell {
         case .loading:
             activityIndicator.startAnimating()
 
-        case .success(url: let urlString):
-            if let imageIndex = Int(urlString.dropFirst(4)) {
-                if let cachedImage = ImageCache.shared.get(for: imageIndex) {
-                    imageView.image = cachedImage
-                } else {
-                    imageView.image = UIImage(systemName: "photo.fill")?
-                        .withTintColor(.systemGray3, renderingMode: .alwaysOriginal)
-                }
+        case .success(let imageID):
+            if let cachedImage = ImageCache.shared.get(for: imageID) {
+                imageView.image = cachedImage
+            } else {
+                imageView.image = UIImage(systemName: "photo.fill")?
+                    .withTintColor(.systemGray3, renderingMode: .alwaysOriginal)
             }
             activityIndicator.stopAnimating()
 

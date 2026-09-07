@@ -30,7 +30,7 @@ class ViewController: UIViewController {
     }()
     
     let collectionView: UICollectionView
-    var imageStates: [ImageLoadingState] = []
+    var imageIdentifiers: [ImageIdentifier] = []
     let imageService = ImageService()
     var isLoadingMore = false
     var currentScreenSize: CGSize = .zero
@@ -130,7 +130,7 @@ class ViewController: UIViewController {
     }
     
     func loadInitialImages() {
-        imageStates = Array(repeating: .idle, count: 5)
+        imageIdentifiers = (0..<5).map { _ in ImageIdentifier(id: Int.random(in: 1...1_000_000), state: .idle) }
         collectionView.reloadData()
         
         for index in 0..<5 {
@@ -139,23 +139,25 @@ class ViewController: UIViewController {
     }
     
     func fetchImage(at index: Int) {
-        guard index < imageStates.count else { return }
+        guard index < imageIdentifiers.count else { return }
         guard currentScreenSize.width > 0, currentScreenSize.height > 0 else { return }
 
-        imageStates[index] = .loading
+        let imageID = imageIdentifiers[index].id
+        imageIdentifiers[index].state = .loading
         collectionView.reloadItems(at: [IndexPath(item: index, section: 0)])
 
         let width = Int(currentScreenSize.width)
         let height = Int(currentScreenSize.height)
 
-        imageService.fetchImage(at: index, width: width, height: height) { [weak self] fetchedIndex, image, error in
-            guard let self = self, fetchedIndex < self.imageStates.count else { return }
+        imageService.fetchImage(imageID: imageID, at: index, width: width, height: height) { [weak self] fetchedIndex, fetchedImageID, image, error in
+            guard let self = self, fetchedIndex < self.imageIdentifiers.count else { return }
+            guard self.imageIdentifiers[fetchedIndex].id == fetchedImageID else { return }
 
             if let image = image {
-                ImageCache.shared.set(image, for: fetchedIndex)
-                self.imageStates[fetchedIndex] = .success(url: "img_\(fetchedIndex)")
+                ImageCache.shared.set(image, for: fetchedImageID)
+                self.imageIdentifiers[fetchedIndex].state = .success(imageID: fetchedImageID)
             } else {
-                self.imageStates[fetchedIndex] = .error("Failed to load")
+                self.imageIdentifiers[fetchedIndex].state = .error("Failed to load")
             }
 
             self.collectionView.reloadItems(at: [IndexPath(item: fetchedIndex, section: 0)])
@@ -166,7 +168,7 @@ class ViewController: UIViewController {
         guard !isLoadingMore else { return }
         isLoadingMore = true
 
-        let currentCount = imageStates.count
+        let currentCount = imageIdentifiers.count
         let newCount = currentCount + 5
 
         var indexPaths: [IndexPath] = []
@@ -175,7 +177,7 @@ class ViewController: UIViewController {
         }
 
         collectionView.performBatchUpdates({
-            self.imageStates.append(contentsOf: Array(repeating: ImageLoadingState.idle, count: 5))
+            self.imageIdentifiers.append(contentsOf: (0..<5).map { _ in ImageIdentifier(id: Int.random(in: 1...1_000_000), state: .idle) })
             self.collectionView.insertItems(at: indexPaths)
         }) { _ in
             for i in currentCount..<newCount {
@@ -192,10 +194,10 @@ class ViewController: UIViewController {
         let minVisible = visibleIndices.min()!
         let maxVisible = visibleIndices.max()!
         
-        let shouldLoadRange = (max(0, minVisible - visibleCacheRange)...min(imageStates.count - 1, maxVisible + visibleCacheRange))
+        let shouldLoadRange = (max(0, minVisible - visibleCacheRange)...min(imageIdentifiers.count - 1, maxVisible + visibleCacheRange))
         
         for i in shouldLoadRange {
-            if case .idle = imageStates[i] {
+            if case .idle = imageIdentifiers[i].state {
                 fetchImage(at: i)
             }
         }
@@ -203,12 +205,12 @@ class ViewController: UIViewController {
         if let lastRange = lastLoadedRange {
             let toUnload = lastRange.filter { !shouldLoadRange.contains($0) }
             for i in toUnload {
-                ImageCache.shared.remove(for: i)
+                ImageCache.shared.remove(for: imageIdentifiers[i].id)
                 // TODO: Further Investigation
                 // Setiap user scroll up akan re-fetch data
                 // Pertimbangan memory/cpu usage nya seperti apa
-                if case .success = imageStates[i] {
-                    imageStates[i] = .idle
+                if case .success = imageIdentifiers[i].state {
+                    imageIdentifiers[i].state = .idle
                 }
             }
         }
@@ -232,12 +234,12 @@ class ViewController: UIViewController {
 
 extension ViewController: UICollectionViewDataSource {
     func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
-        return imageStates.count
+        return imageIdentifiers.count
     }
     
     func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
         let cell = collectionView.dequeueReusableCell(withReuseIdentifier: "ImageCell", for: indexPath) as! ImageCell
-        cell.updateState(imageStates[indexPath.item])
+        cell.updateState(imageIdentifiers[indexPath.item].state)
         return cell
     }
 }
@@ -247,8 +249,8 @@ extension ViewController: UICollectionViewDataSourcePrefetching {
     func collectionView(_ collectionView: UICollectionView, prefetchItemsAt indexPaths: [IndexPath]) {
         for indexPath in indexPaths {
             let index = indexPath.item
-            guard index < imageStates.count else { continue }
-            if case .idle = imageStates[index] {
+            guard index < imageIdentifiers.count else { continue }
+            if case .idle = imageIdentifiers[index].state {
                 fetchImage(at: index)
             }
         }
@@ -257,10 +259,10 @@ extension ViewController: UICollectionViewDataSourcePrefetching {
     func collectionView(_ collectionView: UICollectionView, cancelPrefetchingForItemsAt indexPaths: [IndexPath]) {
         for indexPath in indexPaths {
             let index = indexPath.item
-            guard index < imageStates.count else { continue }
+            guard index < imageIdentifiers.count else { continue }
             imageService.cancelFetch(at: index)
-            if case .loading = imageStates[index] {
-                imageStates[index] = .idle
+            if case .loading = imageIdentifiers[index].state {
+                imageIdentifiers[index].state = .idle
             }
         }
     }

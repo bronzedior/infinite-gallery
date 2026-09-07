@@ -9,8 +9,9 @@ import UIKit
 
 class ImageFetchOperation: Operation, @unchecked Sendable {
     let index: Int
+    let imageID: Int
     let url: URL
-    let completion: (Int, UIImage?, Error?) -> Void
+    let completion: (Int, Int, UIImage?, Error?) -> Void
     var task: URLSessionDataTask?
     
     var _isExecuting = false
@@ -20,8 +21,9 @@ class ImageFetchOperation: Operation, @unchecked Sendable {
     override var isExecuting: Bool { _isExecuting }
     override var isFinished: Bool { _isFinished }
     
-    init(index: Int, url: URL, completion: @escaping (Int, UIImage?, Error?) -> Void) {
+    init(index: Int, imageID: Int, url: URL, completion: @escaping (Int, Int, UIImage?, Error?) -> Void) {
         self.index = index
+        self.imageID = imageID
         self.url = url
         self.completion = completion
     }
@@ -41,15 +43,16 @@ class ImageFetchOperation: Operation, @unchecked Sendable {
             guard !self.isCancelled else { return }
             
             if let data = data, let image = UIImage(data: data) {
-                self.completion(self.index, image, nil)
+                self.completion(self.index, self.imageID, image, nil)
             } else {
-                self.completion(self.index, nil, error)
+                self.completion(self.index, self.imageID, nil, error)
             }
         }
         
         task?.resume()
     }
     
+    // jika user scroll terlalu cepat
     override func cancel() {
         super.cancel()
         task?.cancel()
