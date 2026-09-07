@@ -31,7 +31,7 @@ class ViewController: UIViewController {
     
     let collectionView: UICollectionView
     var imageIdentifiers: [ImageIdentifier] = []
-    let imageService = ImageService()
+    let imageLoader = ImageLoader()
     var isLoadingMore = false
     var currentScreenSize: CGSize = .zero
     
@@ -149,12 +149,11 @@ class ViewController: UIViewController {
         let width = Int(currentScreenSize.width)
         let height = Int(currentScreenSize.height)
 
-        imageService.fetchImage(imageID: imageID, at: index, width: width, height: height) { [weak self] fetchedIndex, fetchedImageID, image, error in
+        imageLoader.loadImage(imageID: imageID, at: index, width: width, height: height) { [weak self] fetchedIndex, fetchedImageID, image, error in
             guard let self = self, fetchedIndex < self.imageIdentifiers.count else { return }
             guard self.imageIdentifiers[fetchedIndex].id == fetchedImageID else { return }
 
-            if let image = image {
-                ImageCache.shared.set(image, for: fetchedImageID)
+            if image != nil {
                 self.imageIdentifiers[fetchedIndex].state = .success(imageID: fetchedImageID)
             } else {
                 self.imageIdentifiers[fetchedIndex].state = .error("Failed to load")
@@ -219,7 +218,7 @@ class ViewController: UIViewController {
     }
     
     deinit {
-        imageService.cancelAllFetches()
+        imageLoader.cancelAllFetches()
     }
     
     override func viewWillDisappear(_ animated: Bool) {
@@ -260,7 +259,7 @@ extension ViewController: UICollectionViewDataSourcePrefetching {
         for indexPath in indexPaths {
             let index = indexPath.item
             guard index < imageIdentifiers.count else { continue }
-            imageService.cancelFetch(at: index)
+            imageLoader.cancelFetch(at: index)
             if case .loading = imageIdentifiers[index].state {
                 imageIdentifiers[index].state = .idle
             }
