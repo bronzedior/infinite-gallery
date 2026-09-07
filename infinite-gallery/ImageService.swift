@@ -25,6 +25,18 @@ class ImageService {
         height: Int,
         completion: @escaping (Int, Int, UIImage?, Error?) -> Void
     ) {
+        if !NetworkMonitor.shared.isConnected {
+            DispatchQueue.main.async {
+                let error = NSError(
+                    domain: "ImageService",
+                    code: -2,
+                    userInfo: [NSLocalizedDescriptionKey: "Tidak ada koneksi internet"]
+                )
+                completion(index, imageID, nil, error)
+            }
+            return
+        }
+        
         //        let randomId = Int.random(in: 1...1000000)
         
         guard let url = URL(string: "https://picsum.photos/seed/\(imageID)/\(width)/\(height)") else {
