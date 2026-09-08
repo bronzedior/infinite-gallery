@@ -17,7 +17,7 @@ class ViewController: UIViewController {
     
     let titleLabel: UILabel = {
         let label = UILabel()
-        label.text = "Infinite Gallery"
+        label.text = "Scrollery"
         label.font = .systemFont(ofSize: 22, weight: .bold)
         label.textAlignment = .center
         return label
@@ -41,6 +41,7 @@ class ViewController: UIViewController {
     var didLoadInitialImages = false
     
     var reconnectToken: NetworkMonitor.SubscriptionToken?
+    var circuitRecoveryToken: CircuitBreaker.SubscriptionToken?
     
     override init(nibName nibNameOrNil: String?, bundle nibBundleOrNil: Bundle?) {
         let layout = UICollectionViewFlowLayout()
@@ -65,6 +66,8 @@ class ViewController: UIViewController {
         setupHeader()
         setupCollectionView()
         subscribeToNetworkReconnect()
+        subscribeToCircuitBreakerRecovery()
+        subscribeToBackgroundRevalidation()
         //        loadInitialImages()
     }
     
@@ -268,6 +271,9 @@ class ViewController: UIViewController {
         if let token = reconnectToken {
             NetworkMonitor.shared.removeStatusChangeCallback(token)
         }
+        if let token = circuitRecoveryToken {
+            CircuitBreaker.shared.removeRecoveryCallback(token)
+        }
     }
     
     override func viewWillDisappear(_ animated: Bool) {
@@ -283,6 +289,20 @@ class ViewController: UIViewController {
         reconnectToken = NetworkMonitor.shared.onStatusChange { [weak self] isConnected in
             guard let self = self, isConnected else { return }
             self.retryFailedImages()
+        }
+    }
+
+    func subscribeToCircuitBreakerRecovery() {
+        circuitRecoveryToken = CircuitBreaker.shared.onRecover { [weak self] in
+            self?.retryFailedImages()
+        }
+    }
+
+    func subscribeToBackgroundRevalidation() {
+        imageLoader.onBackgroundRevalidate = { [weak self] index, imageID, _ in
+            guard let self = self, index < self.imageIdentifiers.count,
+                  self.imageIdentifiers[index].id == imageID else { return }
+            self.collectionView.reloadItems(at: [IndexPath(item: index, section: 0)])
         }
     }
     
