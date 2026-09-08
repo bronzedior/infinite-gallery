@@ -19,15 +19,6 @@ class ImageLoader {
         self.imageService = imageService
         self.memoryCache = memoryCache
         self.diskCache = diskCache
-        
-        NetworkMonitor.shared.onStatusChange { [weak self] isConnected in
-            if isConnected {
-                DispatchQueue.main.async {
-                    // TODO: Further Investigation
-                    // Retry pending requests when back online
-                }
-            }
-        }
     }
     
     func loadImage(

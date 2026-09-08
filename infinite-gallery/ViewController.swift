@@ -40,6 +40,8 @@ class ViewController: UIViewController {
     
     var didLoadInitialImages = false
     
+    var reconnectToken: NetworkMonitor.SubscriptionToken?
+    
     override init(nibName nibNameOrNil: String?, bundle nibBundleOrNil: Bundle?) {
         let layout = UICollectionViewFlowLayout()
         layout.scrollDirection = .vertical
@@ -62,6 +64,7 @@ class ViewController: UIViewController {
         
         setupHeader()
         setupCollectionView()
+        subscribeToNetworkReconnect()
         //        loadInitialImages()
     }
     
@@ -238,6 +241,9 @@ class ViewController: UIViewController {
     
     deinit {
         imageLoader.cancelAllFetches()
+        if let token = reconnectToken {
+            NetworkMonitor.shared.removeStatusChangeCallback(token)
+        }
     }
     
     override func viewWillDisappear(_ animated: Bool) {
@@ -247,6 +253,28 @@ class ViewController: UIViewController {
         // Ketika membuka app kembali dan scroll up
         // Image tidak berhasil ke fetch / re-fetch
         // ImageCache.shared.removeAll()
+    }
+    
+    func subscribeToNetworkReconnect() {
+        reconnectToken = NetworkMonitor.shared.onStatusChange { [weak self] isConnected in
+            guard let self = self, isConnected else { return }
+            self.retryFailedImages()
+        }
+    }
+    
+    func retryFailedImages() {
+        let visibleIndices = collectionView.indexPathsForVisibleItems.map { $0.item }
+        guard !visibleIndices.isEmpty else { return }
+        let minVisible = visibleIndices.min()!
+        let maxVisible = visibleIndices.max()!
+        let range = max(0, minVisible - visibleCacheRange)...min(imageIdentifiers.count - 1, maxVisible + visibleCacheRange)
+        
+        for index in range where index < imageIdentifiers.count {
+            if case .error = imageIdentifiers[index].state {
+                imageIdentifiers[index].state = .idle
+                fetchImage(at: index)
+            }
+        }
     }
 }
 

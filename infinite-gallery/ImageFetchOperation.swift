@@ -27,6 +27,7 @@ class ImageFetchOperation: Operation, @unchecked Sendable {
     
     let retryLock = NSLock()
     var currentAttempt = 0
+    var reconnectToken: NetworkMonitor.SubscriptionToken?
     var pendingRetryWorkItem: DispatchWorkItem?
     
     let maxAttempts = 4
@@ -176,37 +177,52 @@ class ImageFetchOperation: Operation, @unchecked Sendable {
         retryLock.lock()
         pendingRetryWorkItem?.cancel()
         pendingRetryWorkItem = nil
+        let token = reconnectToken
+        reconnectToken = nil
         retryLock.unlock()
+        
+        if let token = token {
+            NetworkMonitor.shared.removeStatusChangeCallback(token)
+        }
     }
     
     func scheduleRetryOnReconnect(workItem: DispatchWorkItem, fallbackDelay: TimeInterval) {
         var reconnectCallbackFired = false
         let callbackLock = NSLock()
+        var token: NetworkMonitor.SubscriptionToken?
         
-        NetworkMonitor.shared.onStatusChange { [weak self] isConnected in
+        token = NetworkMonitor.shared.onStatusChange { [weak self] isConnected in
             guard let self = self else { return }
             
             callbackLock.lock()
             let shouldExecute = isConnected && !reconnectCallbackFired && !self.isCancelled
-            if shouldExecute {
-                reconnectCallbackFired = true
-            }
+            if shouldExecute { reconnectCallbackFired = true }
             callbackLock.unlock()
+            
+            if let token = token {
+                NetworkMonitor.shared.removeStatusChangeCallback(token)
+            }
             
             if shouldExecute {
                 DispatchQueue.global().async(execute: workItem)
             }
         }
         
+        retryLock.lock()
+        reconnectToken = token
+        retryLock.unlock()
+        
         DispatchQueue.global().asyncAfter(deadline: .now() + fallbackDelay) { [weak self] in
             guard let self = self else { return }
             
             callbackLock.lock()
             let shouldExecute = !reconnectCallbackFired && !self.isCancelled
-            if shouldExecute {
-                reconnectCallbackFired = true
-            }
+            if shouldExecute { reconnectCallbackFired = true }
             callbackLock.unlock()
+            
+            if let token = token {
+                NetworkMonitor.shared.removeStatusChangeCallback(token)
+            }
             
             if shouldExecute {
                 workItem.perform()
