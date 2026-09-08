@@ -11,5 +11,13 @@ enum ImageLoadingState {
     case idle
     case loading
     case success(imageID: Int)
-    case error(String)
+    case error(type: ErrorType, message: String)
+    
+    enum ErrorType {
+        case noConnection
+        case timeout
+        case serverError
+        case decodeFailed
+        case unknown
+    }
 }

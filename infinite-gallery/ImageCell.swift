@@ -43,7 +43,7 @@ class ImageCell: UICollectionViewCell {
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
-        
+    
     func setupCell() {
         contentView.backgroundColor = .systemGray6
         contentView.layer.cornerRadius = 12
@@ -72,14 +72,14 @@ class ImageCell: UICollectionViewCell {
     func updateState(_ state: ImageLoadingState) {
         imageView.image = nil
         errorLabel.text = nil
-
+        
         switch state {
         case .idle:
             activityIndicator.stopAnimating()
-
+            
         case .loading:
             activityIndicator.startAnimating()
-
+            
         case .success(let imageID):
             if let cachedImage = ImageCache.shared.get(for: imageID) {
                 imageView.image = cachedImage
@@ -88,10 +88,26 @@ class ImageCell: UICollectionViewCell {
                     .withTintColor(.systemGray3, renderingMode: .alwaysOriginal)
             }
             activityIndicator.stopAnimating()
-
-        case .error(let message):
-            errorLabel.text = "Error\n" + message
+            
+        case .error(let type, let message):
+            let displayMessage = getErrorMessage(for: type)
+            errorLabel.text = "Error\n" + displayMessage
             activityIndicator.stopAnimating()
+        }
+    }
+    
+    func getErrorMessage(for type: ImageLoadingState.ErrorType) -> String {
+        switch type {
+        case .noConnection:
+            return "No Connection"
+        case .timeout:
+            return "Connection Timeout"
+        case .serverError:
+            return "Server Error"
+        case .decodeFailed:
+            return "Failed to load"
+        case .unknown:
+            return "Failed to load"
         }
     }
     

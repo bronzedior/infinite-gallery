@@ -25,12 +25,12 @@ class ImageFetchOperation: Operation, @unchecked Sendable {
     override var isExecuting: Bool { _isExecuting }
     override var isFinished: Bool { _isFinished }
     
-    private let retryLock = NSLock()
-    private var currentAttempt = 0
-    private var pendingRetryWorkItem: DispatchWorkItem?
+    let retryLock = NSLock()
+    var currentAttempt = 0
+    var pendingRetryWorkItem: DispatchWorkItem?
     
-    private let maxAttempts = 4
-    private let baseDelay: TimeInterval = 0.5
+    let maxAttempts = 4
+    let baseDelay: TimeInterval = 0.5
     
     init(index: Int, imageID: Int, url: URL) {
         self.index = index
@@ -59,7 +59,7 @@ class ImageFetchOperation: Operation, @unchecked Sendable {
         attemptFetch(attempt: 0)
     }
     
-    private func attemptFetch(attempt: Int) {
+    func attemptFetch(attempt: Int) {
         retryLock.lock()
         currentAttempt = attempt
         retryLock.unlock()
@@ -92,7 +92,7 @@ class ImageFetchOperation: Operation, @unchecked Sendable {
         task?.resume()
     }
     
-    private func shouldRetry(error: Error?, response: URLResponse?, attempt: Int) -> Bool {
+    func shouldRetry(error: Error?, response: URLResponse?, attempt: Int) -> Bool {
         guard attempt < maxAttempts else { return false }
         
         if let httpResponse = response as? HTTPURLResponse {
@@ -125,7 +125,7 @@ class ImageFetchOperation: Operation, @unchecked Sendable {
         return false
     }
     
-    private func scheduleRetry(for nextAttempt: Int) {
+    func scheduleRetry(for nextAttempt: Int) {
         if !NetworkMonitor.shared.isConnected {
             let error = NSError(
                 domain: "ImageFetchOperation",
@@ -150,7 +150,7 @@ class ImageFetchOperation: Operation, @unchecked Sendable {
         DispatchQueue.global().asyncAfter(deadline: .now() + delay, execute: workItem)
     }
     
-    private func calculateBackoffDelay(for attemptIndex: Int) -> TimeInterval {
+    func calculateBackoffDelay(for attemptIndex: Int) -> TimeInterval {
         let exponentialDelay = baseDelay * TimeInterval(1 << attemptIndex)
         
         let jitterFraction = 0.2

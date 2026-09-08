@@ -62,7 +62,7 @@ class ViewController: UIViewController {
         
         setupHeader()
         setupCollectionView()
-//        loadInitialImages()
+        //        loadInitialImages()
     }
     
     override func viewDidLayoutSubviews() {
@@ -80,9 +80,9 @@ class ViewController: UIViewController {
             }
             
             if !didLoadInitialImages, newItemSize.width > 0, newItemSize.height > 0 {
-                        didLoadInitialImages = true
-                        loadInitialImages()
-                    }
+                didLoadInitialImages = true
+                loadInitialImages()
+            }
         }
     }
     
@@ -141,24 +141,28 @@ class ViewController: UIViewController {
     func fetchImage(at index: Int) {
         guard index < imageIdentifiers.count else { return }
         guard currentScreenSize.width > 0, currentScreenSize.height > 0 else { return }
-
+        
         let imageID = imageIdentifiers[index].id
         imageIdentifiers[index].state = .loading
         collectionView.reloadItems(at: [IndexPath(item: index, section: 0)])
-
+        
         let width = Int(currentScreenSize.width)
         let height = Int(currentScreenSize.height)
-
+        
         imageLoader.loadImage(imageID: imageID, at: index, width: width, height: height) { [weak self] fetchedIndex, fetchedImageID, image, error in
             guard let self = self, fetchedIndex < self.imageIdentifiers.count else { return }
             guard self.imageIdentifiers[fetchedIndex].id == fetchedImageID else { return }
-
-            if image != nil {
+            
+            if let image = image {
                 self.imageIdentifiers[fetchedIndex].state = .success(imageID: fetchedImageID)
+            } else if let error = error as NSError? {
+                let errorType = self.categorizeError(error)
+                let message = error.userInfo[NSLocalizedDescriptionKey] as? String ?? "Failed to load"
+                self.imageIdentifiers[fetchedIndex].state = .error(type: errorType, message: message)
             } else {
-                self.imageIdentifiers[fetchedIndex].state = .error("Failed to load")
+                self.imageIdentifiers[fetchedIndex].state = .error(type: .unknown, message: "Failed to load")
             }
-
+            
             self.collectionView.reloadItems(at: [IndexPath(item: fetchedIndex, section: 0)])
         }
     }
@@ -166,15 +170,15 @@ class ViewController: UIViewController {
     func loadMoreImages() {
         guard !isLoadingMore else { return }
         isLoadingMore = true
-
+        
         let currentCount = imageIdentifiers.count
         let newCount = currentCount + 5
-
+        
         var indexPaths: [IndexPath] = []
         for i in currentCount..<newCount {
             indexPaths.append(IndexPath(item: i, section: 0))
         }
-
+        
         collectionView.performBatchUpdates({
             self.imageIdentifiers.append(contentsOf: (0..<5).map { _ in ImageIdentifier(id: Int.random(in: 1...1_000_000), state: .idle) })
             self.collectionView.insertItems(at: indexPaths)
@@ -215,6 +219,21 @@ class ViewController: UIViewController {
         }
         
         lastLoadedRange = shouldLoadRange
+    }
+    
+    func categorizeError(_ error: NSError) -> ImageLoadingState.ErrorType {
+        if error.domain == "NetworkMonitor" {
+            return .noConnection
+        }
+        
+        switch error.code {
+        case NSURLErrorTimedOut:
+            return .timeout
+        case NSURLErrorNotConnectedToInternet, NSURLErrorNetworkConnectionLost:
+            return .noConnection
+        default:
+            return .unknown
+        }
     }
     
     deinit {
