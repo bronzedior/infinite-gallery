@@ -76,15 +76,12 @@ class ImageFetchOperation: Operation, @unchecked Sendable {
             
             let image = (data != nil) ? UIImage(data: data!) : nil
             
-            // Cek apakah perlu retry
+            self.recordCircuitBreakerOutcome(image: image, response: response, error: error)
+            
             if image == nil,
                self.shouldRetry(error: error, response: response, attempt: attempt) {
                 self.scheduleRetry(for: attempt + 1)
             } else {
-                //                DispatchQueue.main.async {
-                //                    self.notifyCompletions(image: image, error: error)
-                //                }
-                //                self.finish()
                 self.notifyCompletions(image: image, error: error)
                 self.finish()
             }
@@ -100,7 +97,7 @@ class ImageFetchOperation: Operation, @unchecked Sendable {
             let statusCode = httpResponse.statusCode
             
             if statusCode >= 500 && statusCode < 600 {
-                return true
+                return !CircuitBreaker.shared.isOpen
             }
             
             if statusCode >= 400 && statusCode < 500 {
@@ -119,7 +116,7 @@ class ImageFetchOperation: Operation, @unchecked Sendable {
             ]
             
             if retryableErrorCodes.contains(nsError.code) {
-                return true
+                return !CircuitBreaker.shared.isOpen
             }
         }
         
@@ -226,6 +223,30 @@ class ImageFetchOperation: Operation, @unchecked Sendable {
             
             if shouldExecute {
                 workItem.perform()
+            }
+        }
+    }
+    
+    func recordCircuitBreakerOutcome(image: UIImage?, response: URLResponse?, error: Error?) {
+        if image != nil {
+            CircuitBreaker.shared.recordSuccess()
+            return
+        }
+        
+        if let httpResponse = response as? HTTPURLResponse, (500..<600).contains(httpResponse.statusCode) {
+            CircuitBreaker.shared.recordFailure()
+            return
+        }
+        
+        if let nsError = error as? NSError, NetworkMonitor.shared.isConnected {
+            let hostUnreachableCodes: [Int] = [
+                NSURLErrorTimedOut,
+                NSURLErrorCannotConnectToHost,
+                NSURLErrorCannotFindHost,
+                NSURLErrorDNSLookupFailed
+            ]
+            if hostUnreachableCodes.contains(nsError.code) {
+                CircuitBreaker.shared.recordFailure()
             }
         }
     }

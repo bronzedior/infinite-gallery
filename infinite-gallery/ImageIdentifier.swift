@@ -7,7 +7,7 @@
 
 import Foundation
 
-struct ImageIdentifier {
+struct ImageIdentifier: Codable {
     let id: Int
     var state: ImageLoadingState
 }

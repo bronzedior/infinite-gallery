@@ -15,6 +15,8 @@ class ImageLoader {
     var inFlightRequests: [Int: [(UIImage?, Error?) -> Void]] = [:]
     let inFlightLock = NSLock()
     
+    var onBackgroundRevalidate: ((Int, Int, UIImage) -> Void)?
+    
     init(imageService: ImageService = ImageService(), memoryCache: ImageCache = .shared, diskCache: DiskImageCache = .shared) {
         self.imageService = imageService
         self.memoryCache = memoryCache
@@ -33,22 +35,33 @@ class ImageLoader {
             return
         }
         
-        diskCache.get(for: imageID) { [weak self] diskImage in
+        diskCache.get(for: imageID) { [weak self] result in
             guard let self = self else { return }
             
-            if let diskImage = diskImage {
-                self.memoryCache.set(diskImage, for: imageID)
-                completion(index, imageID, diskImage, nil)
+            guard let result = result else {
+                self.fetchImageWithDeduplication(
+                    imageID: imageID, at: index, width: width, height: height, completion: completion
+                )
                 return
             }
             
-            self.fetchImageWithDeduplication(
-                imageID: imageID,
-                at: index,
-                width: width,
-                height: height,
-                completion: completion
-            )
+            self.memoryCache.set(result.image, for: imageID)
+            completion(index, imageID, result.image, nil)
+            
+            if result.isStale {
+                self.revalidateInBackground(imageID: imageID, at: index, width: width, height: height)
+            }
+        }
+    }
+    
+    func revalidateInBackground(imageID: Int, at index: Int, width: Int, height: Int) {
+        guard NetworkMonitor.shared.isConnected else { return }
+        
+        fetchImageWithDeduplication(
+            imageID: imageID, at: index, width: width, height: height
+        ) { [weak self] fetchedIndex, fetchedImageID, image, error in
+            guard let self = self, let image = image else { return }
+            self.onBackgroundRevalidate?(fetchedIndex, fetchedImageID, image)
         }
     }
     

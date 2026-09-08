@@ -133,12 +133,34 @@ class ViewController: UIViewController {
     }
     
     func loadInitialImages() {
-        imageIdentifiers = (0..<5).map { _ in ImageIdentifier(id: Int.random(in: 1...1_000_000), state: .idle) }
-        collectionView.reloadData()
-        
-        for index in 0..<5 {
-            fetchImage(at: index)
+        GallerySessionStore.shared.load { [weak self] persisted in
+            guard let self = self else { return }
+            
+            if let persisted = persisted, !persisted.isEmpty {
+                self.imageIdentifiers = persisted.map { identifier in
+                    var identifier = identifier
+                    switch identifier.state {
+                    case .loading, .error:
+                        identifier.state = .idle
+                    default:
+                        break
+                    }
+                    return identifier
+                }
+                self.collectionView.reloadData()
+                self.updateImageCache()
+            } else {
+                self.imageIdentifiers = (0..<5).map { _ in ImageIdentifier(id: Int.random(in: 1...1_000_000), state: .idle) }
+                self.collectionView.reloadData()
+                for index in 0..<5 {
+                    self.fetchImage(at: index)
+                }
+            }
         }
+    }
+    
+    func persistSession() {
+        GallerySessionStore.shared.save(imageIdentifiers)
     }
     
     func fetchImage(at index: Int) {
@@ -167,6 +189,7 @@ class ViewController: UIViewController {
             }
             
             self.collectionView.reloadItems(at: [IndexPath(item: fetchedIndex, section: 0)])
+            self.persistSession()
         }
     }
     
@@ -186,6 +209,7 @@ class ViewController: UIViewController {
             self.imageIdentifiers.append(contentsOf: (0..<5).map { _ in ImageIdentifier(id: Int.random(in: 1...1_000_000), state: .idle) })
             self.collectionView.insertItems(at: indexPaths)
         }) { _ in
+            self.persistSession()
             for i in currentCount..<newCount {
                 self.fetchImage(at: i)
             }

@@ -37,6 +37,18 @@ class ImageService {
             return
         }
         
+        guard CircuitBreaker.shared.canProceed() else {
+            DispatchQueue.main.async {
+                let error = NSError(
+                    domain: "ImageService",
+                    code: -3,
+                    userInfo: [NSLocalizedDescriptionKey: "Server sedang bermasalah, coba lagi nanti"]
+                )
+                completion(index, imageID, nil, error)
+            }
+            return
+        }
+        
         //        let randomId = Int.random(in: 1...1000000)
         
         guard let url = URL(string: "https://picsum.photos/seed/\(imageID)/\(width)/\(height)") else {
