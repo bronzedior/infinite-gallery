@@ -126,28 +126,23 @@ class ImageFetchOperation: Operation, @unchecked Sendable {
     }
     
     func scheduleRetry(for nextAttempt: Int) {
-        if !NetworkMonitor.shared.isConnected {
-            let error = NSError(
-                domain: "ImageFetchOperation",
-                code: -3,
-                userInfo: [NSLocalizedDescriptionKey: "Tidak ada koneksi internet"]
-            )
-            self.notifyCompletions(image: nil, error: error)
-            self.finish()
-            return
-        }
-        
         let delay = calculateBackoffDelay(for: nextAttempt - 1)
         
         let workItem = DispatchWorkItem { [weak self] in
-            self?.attemptFetch(attempt: nextAttempt)
+            guard let self = self else { return }
+            guard !self.isCancelled else { return }
+            self.attemptFetch(attempt: nextAttempt)
         }
         
         retryLock.lock()
         pendingRetryWorkItem = workItem
         retryLock.unlock()
         
-        DispatchQueue.global().asyncAfter(deadline: .now() + delay, execute: workItem)
+        if NetworkMonitor.shared.isConnected {
+            DispatchQueue.global().asyncAfter(deadline: .now() + delay, execute: workItem)
+        } else {
+            scheduleRetryOnReconnect(workItem: workItem, fallbackDelay: delay)
+        }
     }
     
     func calculateBackoffDelay(for attemptIndex: Int) -> TimeInterval {
@@ -182,6 +177,41 @@ class ImageFetchOperation: Operation, @unchecked Sendable {
         pendingRetryWorkItem?.cancel()
         pendingRetryWorkItem = nil
         retryLock.unlock()
+    }
+    
+    func scheduleRetryOnReconnect(workItem: DispatchWorkItem, fallbackDelay: TimeInterval) {
+        var reconnectCallbackFired = false
+        let callbackLock = NSLock()
+        
+        NetworkMonitor.shared.onStatusChange { [weak self] isConnected in
+            guard let self = self else { return }
+            
+            callbackLock.lock()
+            let shouldExecute = isConnected && !reconnectCallbackFired && !self.isCancelled
+            if shouldExecute {
+                reconnectCallbackFired = true
+            }
+            callbackLock.unlock()
+            
+            if shouldExecute {
+                DispatchQueue.global().async(execute: workItem)
+            }
+        }
+        
+        DispatchQueue.global().asyncAfter(deadline: .now() + fallbackDelay) { [weak self] in
+            guard let self = self else { return }
+            
+            callbackLock.lock()
+            let shouldExecute = !reconnectCallbackFired && !self.isCancelled
+            if shouldExecute {
+                reconnectCallbackFired = true
+            }
+            callbackLock.unlock()
+            
+            if shouldExecute {
+                workItem.perform()
+            }
+        }
     }
     
     func finish() {
