@@ -25,6 +25,13 @@ class ImageFetchOperation: Operation, @unchecked Sendable {
     override var isExecuting: Bool { _isExecuting }
     override var isFinished: Bool { _isFinished }
     
+    private let retryLock = NSLock()
+    private var currentAttempt = 0
+    private var pendingRetryWorkItem: DispatchWorkItem?
+    
+    private let maxAttempts = 4
+    private let baseDelay: TimeInterval = 0.5
+    
     init(index: Int, imageID: Int, url: URL) {
         self.index = index
         self.imageID = imageID
@@ -49,18 +56,107 @@ class ImageFetchOperation: Operation, @unchecked Sendable {
         _isExecuting = true
         didChangeValue(forKey: "isExecuting")
         
-        task = URLSession.shared.dataTask(with: url) { [weak self] data, _, error in
+        attemptFetch(attempt: 0)
+    }
+    
+    private func attemptFetch(attempt: Int) {
+        retryLock.lock()
+        currentAttempt = attempt
+        retryLock.unlock()
+        
+        guard !isCancelled else {
+            finish()
+            return
+        }
+        
+        task = URLSession.shared.dataTask(with: url) { [weak self] data, response, error in
             guard let self = self else { return }
-            
-            defer { self.finish() }
-            
-            guard !self.isCancelled else { return }
+            guard !self.isCancelled else { self.finish(); return }
             
             let image = (data != nil) ? UIImage(data: data!) : nil
-            self.notifyCompletions(image: image, error: error)
+            
+            // Cek apakah perlu retry
+            if image == nil,
+               self.shouldRetry(error: error, response: response, attempt: attempt) {
+                self.scheduleRetry(for: attempt + 1)
+            } else {
+                //                DispatchQueue.main.async {
+                //                    self.notifyCompletions(image: image, error: error)
+                //                }
+                //                self.finish()
+                self.notifyCompletions(image: image, error: error)
+                self.finish()
+            }
         }
         
         task?.resume()
+    }
+    
+    private func shouldRetry(error: Error?, response: URLResponse?, attempt: Int) -> Bool {
+        guard attempt < maxAttempts else { return false }
+        
+        if let httpResponse = response as? HTTPURLResponse {
+            let statusCode = httpResponse.statusCode
+            
+            if statusCode >= 500 && statusCode < 600 {
+                return true
+            }
+            
+            if statusCode >= 400 && statusCode < 500 {
+                return false
+            }
+        }
+        
+        if let nsError = error as? NSError {
+            let retryableErrorCodes: [Int] = [
+                NSURLErrorTimedOut,
+                NSURLErrorNetworkConnectionLost,
+                NSURLErrorNotConnectedToInternet,
+                NSURLErrorDNSLookupFailed,
+                NSURLErrorCannotFindHost,
+                NSURLErrorCannotConnectToHost,
+            ]
+            
+            if retryableErrorCodes.contains(nsError.code) {
+                return true
+            }
+        }
+        
+        return false
+    }
+    
+    private func scheduleRetry(for nextAttempt: Int) {
+        if !NetworkMonitor.shared.isConnected {
+            let error = NSError(
+                domain: "ImageFetchOperation",
+                code: -3,
+                userInfo: [NSLocalizedDescriptionKey: "Tidak ada koneksi internet"]
+            )
+            self.notifyCompletions(image: nil, error: error)
+            self.finish()
+            return
+        }
+        
+        let delay = calculateBackoffDelay(for: nextAttempt - 1)
+        
+        let workItem = DispatchWorkItem { [weak self] in
+            self?.attemptFetch(attempt: nextAttempt)
+        }
+        
+        retryLock.lock()
+        pendingRetryWorkItem = workItem
+        retryLock.unlock()
+        
+        DispatchQueue.global().asyncAfter(deadline: .now() + delay, execute: workItem)
+    }
+    
+    private func calculateBackoffDelay(for attemptIndex: Int) -> TimeInterval {
+        let exponentialDelay = baseDelay * TimeInterval(1 << attemptIndex)
+        
+        let jitterFraction = 0.2
+        let jitter = (Double.random(in: -jitterFraction...jitterFraction) + 1.0) * exponentialDelay
+        
+        return min(jitter, 8.0)
     }
     
     func notifyCompletions(image: UIImage?, error: Error?) {
@@ -81,6 +177,11 @@ class ImageFetchOperation: Operation, @unchecked Sendable {
     override func cancel() {
         super.cancel()
         task?.cancel()
+        
+        retryLock.lock()
+        pendingRetryWorkItem?.cancel()
+        pendingRetryWorkItem = nil
+        retryLock.unlock()
     }
     
     func finish() {
