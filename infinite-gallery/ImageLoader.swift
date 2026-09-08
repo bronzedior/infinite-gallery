@@ -12,6 +12,9 @@ class ImageLoader {
     let memoryCache: ImageCache
     let diskCache: DiskImageCache
     
+    var inFlightRequests: [Int: [(UIImage?, Error?) -> Void]] = [:]
+    let inFlightLock = NSLock()
+    
     init(imageService: ImageService = ImageService(), memoryCache: ImageCache = .shared, diskCache: DiskImageCache = .shared) {
         self.imageService = imageService
         self.memoryCache = memoryCache
@@ -20,6 +23,7 @@ class ImageLoader {
         NetworkMonitor.shared.onStatusChange { [weak self] isConnected in
             if isConnected {
                 DispatchQueue.main.async {
+                    // TODO: Further Investigation
                     // Retry pending requests when back online
                 }
             }
@@ -47,23 +51,65 @@ class ImageLoader {
                 return
             }
             
-            if !NetworkMonitor.shared.isConnected {
-                let error = NSError(domain: "NetworkMonitor", code: -1, userInfo: [NSLocalizedDescriptionKey: "No Connection"])
-                completion(index, imageID, nil, error)
-                return
+            self.fetchImageWithDeduplication(
+                imageID: imageID,
+                at: index,
+                width: width,
+                height: height,
+                completion: completion
+            )
+        }
+    }
+    
+    func fetchImageWithDeduplication(
+        imageID: Int,
+        at index: Int,
+        width: Int,
+        height: Int,
+        completion: @escaping (Int, Int, UIImage?, Error?) -> Void
+    ) {
+        if !NetworkMonitor.shared.isConnected {
+            let error = NSError(domain: "NetworkMonitor", code: -1, userInfo: [NSLocalizedDescriptionKey: "No Connection"])
+            completion(index, imageID, nil, error)
+            return
+        }
+        
+        inFlightLock.lock()
+        
+        if inFlightRequests[imageID] != nil {
+            inFlightRequests[imageID]?.append { [weak self] image, error in
+                completion(index, imageID, image, error)
+            }
+            inFlightLock.unlock()
+            return
+        }
+        
+        inFlightRequests[imageID] = [{ [weak self] image, error in
+            completion(index, imageID, image, error)
+        }]
+        inFlightLock.unlock()
+        
+        imageService.fetchImage(imageID: imageID, at: index, width: width, height: height) { [weak self] fetchedIndex, fetchedImageID, image, error in
+            guard let self = self else { return }
+            
+            let result: (image: UIImage?, error: Error?)
+            if let image = image {
+                self.memoryCache.set(image, for: fetchedImageID)
+                self.diskCache.set(image, for: fetchedImageID)
+                result = (image, nil)
+            } else {
+                let errorType = self.categorizeError(error)
+                let message = self.errorMessage(for: errorType)
+                let categorizedError = NSError(domain: "ImageLoader", code: -1, userInfo: [NSLocalizedDescriptionKey: message])
+                result = (nil, categorizedError)
             }
             
-            self.imageService.fetchImage(imageID: imageID, at: index, width: width, height: height) { fetchedIndex, fetchedImageID, image, error in
-                if let image = image {
-                    self.memoryCache.set(image, for: fetchedImageID)
-                    self.diskCache.set(image, for: fetchedImageID)
-                    completion(fetchedIndex, fetchedImageID, image, nil)
-                } else {
-                    let errorType = self.categorizeError(error)
-                    let errorMessage = self.errorMessage(for: errorType)
-                    let categorizedError = NSError(domain: "ImageLoader", code: -1, userInfo: [NSLocalizedDescriptionKey: errorMessage])
-                    completion(fetchedIndex, fetchedImageID, nil, categorizedError)
-                }
+            self.inFlightLock.lock()
+            let callbacks = self.inFlightRequests.removeValue(forKey: fetchedImageID) ?? []
+            self.inFlightLock.unlock()
+            
+            callbacks.forEach { callback in
+                callback(result.image, result.error)
             }
         }
     }
@@ -74,6 +120,10 @@ class ImageLoader {
     
     func cancelAllFetches() {
         imageService.cancelAllFetches()
+        
+        inFlightLock.lock()
+        inFlightRequests.removeAll()
+        inFlightLock.unlock()
     }
     
     func categorizeError(_ error: Error?) -> ImageLoadingState.ErrorType {
