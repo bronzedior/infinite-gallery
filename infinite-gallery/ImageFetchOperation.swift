@@ -18,12 +18,21 @@ class ImageFetchOperation: Operation, @unchecked Sendable {
     
     var task: URLSessionDataTask?
     
-    var _isExecuting = false
-    var _isFinished = false
+    private let stateLock = NSRecursiveLock()
+    private var _isExecuting = false
+    private var _isFinished = false
     
     override var isAsynchronous: Bool { true }
-    override var isExecuting: Bool { _isExecuting }
-    override var isFinished: Bool { _isFinished }
+    override var isExecuting: Bool {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return _isExecuting
+    }
+    override var isFinished: Bool {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return _isFinished
+    }
     
     let retryLock = NSLock()
     var currentAttempt = 0
@@ -51,11 +60,17 @@ class ImageFetchOperation: Operation, @unchecked Sendable {
     }
     
     override func start() {
-        guard !isCancelled else { finish(); return }
+        stateLock.lock()
+        guard !isCancelled, !_isFinished else {
+            finish()
+            stateLock.unlock()
+            return
+        }
         
         willChangeValue(forKey: "isExecuting")
         _isExecuting = true
         didChangeValue(forKey: "isExecuting")
+        stateLock.unlock()
         
         attemptFetch(attempt: 0)
     }
@@ -181,6 +196,7 @@ class ImageFetchOperation: Operation, @unchecked Sendable {
         if let token = token {
             NetworkMonitor.shared.removeStatusChangeCallback(token)
         }
+        finish()
     }
     
     func scheduleRetryOnReconnect(workItem: DispatchWorkItem, fallbackDelay: TimeInterval) {
@@ -252,13 +268,17 @@ class ImageFetchOperation: Operation, @unchecked Sendable {
     }
     
     func finish() {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        guard !_isFinished else { return }
+
         willChangeValue(forKey: "isExecuting")
         willChangeValue(forKey: "isFinished")
         
         _isExecuting = false
         _isFinished = true
         
-        didChangeValue(forKey: "isExecuting")
         didChangeValue(forKey: "isFinished")
+        didChangeValue(forKey: "isExecuting")
     }
 }
