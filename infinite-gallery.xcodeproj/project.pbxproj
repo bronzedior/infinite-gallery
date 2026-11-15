@@ -6,8 +6,16 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXContainerItemProxy section */
+        A1000000000000000000000A = {isa = PBXContainerItemProxy; containerPortal = 53F6D35A30490F5E0025456E; proxyType = 1; remoteGlobalIDString = 53F6D36130490F5E0025456E; remoteInfo = "infinite-gallery"; };
+/* End PBXContainerItemProxy section */
+/* Begin PBXTargetDependency section */
+        A1000000000000000000000B = {isa = PBXTargetDependency; target = 53F6D36130490F5E0025456E; targetProxy = A1000000000000000000000A; };
+/* End PBXTargetDependency section */
+
 /* Begin PBXFileReference section */
 		53F6D36230490F5E0025456E /* infinite-gallery.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "infinite-gallery.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		A10000000000000000000001 /* InfiniteGalleryTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; path = InfiniteGalleryTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -29,6 +37,7 @@
 			path = "infinite-gallery";
 			sourceTree = "<group>";
 		};
+		A10000000000000000000002 /* Tests */ = {isa = PBXFileSystemSynchronizedRootGroup; path = Tests; sourceTree = "<group>"; };
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -39,12 +48,14 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A10000000000000000000005 = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
 		53F6D35930490F5E0025456E = {
 			isa = PBXGroup;
 			children = (
+                A10000000000000000000002 /* Tests */,
 				53F6D36430490F5E0025456E /* infinite-gallery */,
 				53F6D36330490F5E0025456E /* Products */,
 			);
@@ -53,6 +64,7 @@
 		53F6D36330490F5E0025456E /* Products */ = {
 			isa = PBXGroup;
 			children = (
+                A10000000000000000000001 /* InfiniteGalleryTests.xctest */,
 				53F6D36230490F5E0025456E /* infinite-gallery.app */,
 			);
 			name = Products;
@@ -83,6 +95,18 @@
 			productReference = 53F6D36230490F5E0025456E /* infinite-gallery.app */;
 			productType = "com.apple.product-type.application";
 		};
+		A10000000000000000000003 /* InfiniteGalleryTests */ = {
+            isa = PBXNativeTarget;
+            buildConfigurationList = A10000000000000000000007;
+            buildPhases = (A10000000000000000000004, A10000000000000000000005, A10000000000000000000006);
+            buildRules = ();
+            dependencies = (A1000000000000000000000B);
+            fileSystemSynchronizedGroups = (A10000000000000000000002);
+            name = InfiniteGalleryTests;
+            productName = InfiniteGalleryTests;
+            productReference = A10000000000000000000001;
+            productType = "com.apple.product-type.bundle.unit-test";
+        };
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -112,6 +136,7 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
+                A10000000000000000000003 /* InfiniteGalleryTests */,
 				53F6D36130490F5E0025456E /* infinite-gallery */,
 			);
 		};
@@ -125,6 +150,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A10000000000000000000006 = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -135,6 +161,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A10000000000000000000004 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXSourcesBuildPhase section */
 
 /* Begin XCBuildConfiguration section */
@@ -321,6 +348,34 @@
 			};
 			name = Release;
 		};
+        A10000000000000000000008 = {
+            isa = XCBuildConfiguration;
+            buildSettings = {
+                BUNDLE_LOADER = "$(TEST_HOST)";
+                CODE_SIGN_STYLE = Automatic;
+                GENERATE_INFOPLIST_FILE = YES;
+                PRODUCT_BUNDLE_IDENTIFIER = "com.bronzedior.infinite-gallery.tests";
+                PRODUCT_NAME = "$(TARGET_NAME)";
+                SWIFT_VERSION = 5.0;
+                TARGETED_DEVICE_FAMILY = "1,2";
+                TEST_HOST = "$(BUILT_PRODUCTS_DIR)/infinite-gallery.app/infinite-gallery";
+            };
+            name = Debug;
+        };
+        A10000000000000000000009 = {
+            isa = XCBuildConfiguration;
+            buildSettings = {
+                BUNDLE_LOADER = "$(TEST_HOST)";
+                CODE_SIGN_STYLE = Automatic;
+                GENERATE_INFOPLIST_FILE = YES;
+                PRODUCT_BUNDLE_IDENTIFIER = "com.bronzedior.infinite-gallery.tests";
+                PRODUCT_NAME = "$(TARGET_NAME)";
+                SWIFT_VERSION = 5.0;
+                TARGETED_DEVICE_FAMILY = "1,2";
+                TEST_HOST = "$(BUILT_PRODUCTS_DIR)/infinite-gallery.app/infinite-gallery";
+            };
+            name = Release;
+        };
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -342,6 +397,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		A10000000000000000000007 = {isa = XCConfigurationList; buildConfigurations = (A10000000000000000000008, A10000000000000000000009); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
 /* End XCConfigurationList section */
 	};
 	rootObject = 53F6D35A30490F5E0025456E /* Project object */;
