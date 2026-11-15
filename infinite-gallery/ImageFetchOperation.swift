@@ -169,6 +169,10 @@ class ImageFetchOperation: Operation, @unchecked Sendable {
     
     func notifyCompletions(image: UIImage?, error: Error?) {
         completionLock.lock()
+        guard !didNotify else {
+            completionLock.unlock()
+            return
+        }
         let callbackList = completions
         completions.removeAll()
         didNotify = true
@@ -196,6 +200,7 @@ class ImageFetchOperation: Operation, @unchecked Sendable {
         if let token = token {
             NetworkMonitor.shared.removeStatusChangeCallback(token)
         }
+        notifyCompletions(image: nil, error: URLError(.cancelled))
         finish()
     }
     

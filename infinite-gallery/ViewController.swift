@@ -180,8 +180,9 @@ class ViewController: UIViewController {
         imageLoader.loadImage(imageID: imageID, at: index, width: width, height: height) { [weak self] fetchedIndex, fetchedImageID, image, error in
             guard let self = self, fetchedIndex < self.imageIdentifiers.count else { return }
             guard self.imageIdentifiers[fetchedIndex].id == fetchedImageID else { return }
+            if (error as? URLError)?.code == .cancelled { return }
             
-            if let image = image {
+            if image != nil {
                 self.imageIdentifiers[fetchedIndex].state = .success(imageID: fetchedImageID)
             } else if let error = error as NSError? {
                 let errorType = self.categorizeError(error)

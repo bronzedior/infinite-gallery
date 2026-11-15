@@ -89,7 +89,7 @@ class ImageCell: UICollectionViewCell {
             }
             activityIndicator.stopAnimating()
             
-        case .error(let type, let message):
+        case .error(let type, _):
             let displayMessage = getErrorMessage(for: type)
             errorLabel.text = "Error\n" + displayMessage
             activityIndicator.stopAnimating()

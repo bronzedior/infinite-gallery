@@ -12,7 +12,17 @@ class ImageLoader {
     let memoryCache: ImageCache
     let diskCache: DiskImageCache
     
-    var inFlightRequests: [Int: [(UIImage?, Error?) -> Void]] = [:]
+    final class InFlightRequest {
+        let fetchIndex: Int
+        var callbacks: [(index: Int, completion: (UIImage?, Error?) -> Void)]
+
+        init(index: Int, completion: @escaping (UIImage?, Error?) -> Void) {
+            fetchIndex = index
+            callbacks = [(index, completion)]
+        }
+    }
+
+    var inFlightRequests: [Int: InFlightRequest] = [:]
     let inFlightLock = NSLock()
     
     var onBackgroundRevalidate: ((Int, Int, UIImage) -> Void)?
@@ -80,27 +90,38 @@ class ImageLoader {
         
         inFlightLock.lock()
         
-        if inFlightRequests[imageID] != nil {
-            inFlightRequests[imageID]?.append { [weak self] image, error in
+        if let request = inFlightRequests[imageID] {
+            request.callbacks.append((index, { image, error in
                 completion(index, imageID, image, error)
-            }
+            }))
             inFlightLock.unlock()
             return
         }
         
-        inFlightRequests[imageID] = [{ [weak self] image, error in
+        let request = InFlightRequest(index: index) { image, error in
             completion(index, imageID, image, error)
-        }]
-        inFlightLock.unlock()
+        }
+        inFlightRequests[imageID] = request
         
         imageService.fetchImage(imageID: imageID, at: index, width: width, height: height) { [weak self] fetchedIndex, fetchedImageID, image, error in
             guard let self = self else { return }
+
+            self.inFlightLock.lock()
+            guard self.inFlightRequests[fetchedImageID] === request else {
+                self.inFlightLock.unlock()
+                return
+            }
+            self.inFlightRequests.removeValue(forKey: fetchedImageID)
+            let callbacks = request.callbacks
+            self.inFlightLock.unlock()
             
             let result: (image: UIImage?, error: Error?)
             if let image = image {
                 self.memoryCache.set(image, for: fetchedImageID)
                 self.diskCache.set(image, for: fetchedImageID)
                 result = (image, nil)
+            } else if let error = error as? URLError, error.code == .cancelled {
+                result = (nil, error)
             } else {
                 let errorType = self.categorizeError(error)
                 let message = self.errorMessage(for: errorType)
@@ -108,26 +129,41 @@ class ImageLoader {
                 result = (nil, categorizedError)
             }
             
-            self.inFlightLock.lock()
-            let callbacks = self.inFlightRequests.removeValue(forKey: fetchedImageID) ?? []
-            self.inFlightLock.unlock()
-            
             callbacks.forEach { callback in
-                callback(result.image, result.error)
+                callback.completion(result.image, result.error)
             }
         }
+        inFlightLock.unlock()
     }
     
     func cancelFetch(at index: Int) {
-        imageService.cancelFetch(at: index)
+        inFlightLock.lock()
+        var callbacks: [(UIImage?, Error?) -> Void] = []
+        for (imageID, request) in inFlightRequests {
+            callbacks += request.callbacks.filter { $0.index == index }.map(\.completion)
+            request.callbacks.removeAll { $0.index == index }
+            if request.callbacks.isEmpty {
+                inFlightRequests.removeValue(forKey: imageID)
+                imageService.cancelFetch(at: request.fetchIndex)
+            }
+        }
+        inFlightLock.unlock()
+        notifyCancellation(callbacks)
     }
     
     func cancelAllFetches() {
-        imageService.cancelAllFetches()
-        
         inFlightLock.lock()
+        let callbacks = inFlightRequests.values.flatMap { $0.callbacks.map(\.completion) }
         inFlightRequests.removeAll()
+        imageService.cancelAllFetches()
         inFlightLock.unlock()
+        notifyCancellation(callbacks)
+    }
+
+    private func notifyCancellation(_ callbacks: [(UIImage?, Error?) -> Void]) {
+        DispatchQueue.main.async {
+            callbacks.forEach { $0(nil, URLError(.cancelled)) }
+        }
     }
     
     func categorizeError(_ error: Error?) -> ImageLoadingState.ErrorType {
