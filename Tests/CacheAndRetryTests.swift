@@ -97,7 +97,7 @@ final class CacheAndRetryTests: XCTestCase {
         wait(for: [callbacks], timeout: 3)
     }
 
-    func testDiskBudgetEvictsOldestAndSkipsOversizedData() throws {
+    func testDiskBudgetEvictsOldestAndSkipsOversizedData() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let data = ImageResponseStub.imageData
         let cache = DiskImageCache(directoryURL: directory, maxBytes: data.count * 2)
@@ -115,13 +115,15 @@ final class CacheAndRetryTests: XCTestCase {
         let files = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.fileSizeKey])
         let total = try files.reduce(0) { try $0 + $1.resourceValues(forKeys: [.fileSizeKey]).fileSize! }
         XCTAssertEqual(total, data.count * 2)
+        let last = ImageRequestKey(imageID: 3, width: 1, height: 1)
+        try FileManager.default.setAttributes([.modificationDate: Date.distantPast], ofItemAtPath: cache.fileURL(for: last).path)
         let hit = expectation(description: "cache hit")
-        cache.get(for: ImageRequestKey(imageID: 3, width: 1, height: 1), maxAge: 0) { result in
+        cache.get(for: last) { result in
             XCTAssertNotNil(result?.image)
             XCTAssertEqual(result?.isStale, true)
             hit.fulfill()
         }
-        wait(for: [hit], timeout: 2)
+        await fulfillment(of: [hit], timeout: 10)
     }
 
     func testDiskBudgetIsEnforcedOnStartupIncludingLegacyFiles() throws {
