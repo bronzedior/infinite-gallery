@@ -69,7 +69,7 @@ class ImageCell: UICollectionViewCell {
         ])
     }
     
-    func updateState(_ state: ImageLoadingState) {
+    func updateState(_ state: ImageLoadingState, image: UIImage? = nil) {
         imageView.image = nil
         errorLabel.text = nil
         
@@ -80,9 +80,9 @@ class ImageCell: UICollectionViewCell {
         case .loading:
             activityIndicator.startAnimating()
             
-        case .success(let imageID):
-            if let cachedImage = ImageCache.shared.get(for: imageID) {
-                imageView.image = cachedImage
+        case .success:
+            if let image {
+                imageView.image = image
             } else {
                 imageView.image = UIImage(systemName: "photo.fill")?
                     .withTintColor(.systemGray3, renderingMode: .alwaysOriginal)
@@ -90,24 +90,9 @@ class ImageCell: UICollectionViewCell {
             activityIndicator.stopAnimating()
             
         case .error(let type, _):
-            let displayMessage = getErrorMessage(for: type)
+            let displayMessage = type.message
             errorLabel.text = "Error\n" + displayMessage
             activityIndicator.stopAnimating()
-        }
-    }
-    
-    func getErrorMessage(for type: ImageLoadingState.ErrorType) -> String {
-        switch type {
-        case .noConnection:
-            return "No Connection"
-        case .timeout:
-            return "Connection Timeout"
-        case .serverError:
-            return "Server Error"
-        case .decodeFailed:
-            return "Failed to load"
-        case .unknown:
-            return "Failed to load"
         }
     }
     

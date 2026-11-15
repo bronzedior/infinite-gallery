@@ -31,7 +31,7 @@ class ViewController: UIViewController {
     
     let collectionView: UICollectionView
     var imageIdentifiers: [ImageIdentifier] = []
-    let imageLoader = ImageLoader()
+    let imageLoader: ImageLoader
     var isLoadingMore = false
     var currentScreenSize: CGSize = .zero
     
@@ -43,15 +43,16 @@ class ViewController: UIViewController {
     var reconnectToken: NetworkMonitor.SubscriptionToken?
     var circuitRecoveryToken: CircuitBreaker.SubscriptionToken?
     
-    override init(nibName nibNameOrNil: String?, bundle nibBundleOrNil: Bundle?) {
+    init(imageLoader: ImageLoader = ImageLoader()) {
+        self.imageLoader = imageLoader
         let layout = UICollectionViewFlowLayout()
         layout.scrollDirection = .vertical
         layout.minimumLineSpacing = 12
         layout.minimumInteritemSpacing = 0
-        layout.itemSize = .zero
+        layout.itemSize = CGSize(width: 1, height: 1)
         
         collectionView = UICollectionView(frame: .zero, collectionViewLayout: layout)
-        super.init(nibName: nibNameOrNil, bundle: nibBundleOrNil)
+        super.init(nibName: nil, bundle: nil)
     }
     
     required init?(coder: NSCoder) {
@@ -76,7 +77,7 @@ class ViewController: UIViewController {
         
         let size = view.bounds.size
         let padding: CGFloat = 32
-        let newItemSize = CGSize(width: size.width - padding, height: size.height - 200)
+        let newItemSize = CGSize(width: max(1, size.width - padding), height: max(1, size.height - 200))
         
         if newItemSize != currentScreenSize {
             currentScreenSize = newItemSize
@@ -88,6 +89,11 @@ class ViewController: UIViewController {
             if !didLoadInitialImages, newItemSize.width > 0, newItemSize.height > 0 {
                 didLoadInitialImages = true
                 loadInitialImages()
+            } else if didLoadInitialImages {
+                imageLoader.cancelAllFetches()
+                for index in imageIdentifiers.indices { imageIdentifiers[index].state = .idle }
+                collectionView.reloadData()
+                updateImageCache()
             }
         }
     }
@@ -142,12 +148,7 @@ class ViewController: UIViewController {
             if let persisted = persisted, !persisted.isEmpty {
                 self.imageIdentifiers = persisted.map { identifier in
                     var identifier = identifier
-                    switch identifier.state {
-                    case .loading, .error:
-                        identifier.state = .idle
-                    default:
-                        break
-                    }
+                    identifier.state = .idle
                     return identifier
                 }
                 self.collectionView.reloadData()
@@ -174,22 +175,19 @@ class ViewController: UIViewController {
         imageIdentifiers[index].state = .loading
         collectionView.reloadItems(at: [IndexPath(item: index, section: 0)])
         
-        let width = Int(currentScreenSize.width)
-        let height = Int(currentScreenSize.height)
+        let key = imageKey(for: index)
         
-        imageLoader.loadImage(imageID: imageID, at: index, width: width, height: height) { [weak self] fetchedIndex, fetchedImageID, image, error in
+        imageLoader.loadImage(imageID: imageID, at: index, width: key.width, height: key.height) { [weak self] fetchedIndex, fetchedImageID, image, error in
             guard let self = self, fetchedIndex < self.imageIdentifiers.count else { return }
             guard self.imageIdentifiers[fetchedIndex].id == fetchedImageID else { return }
+            guard self.imageKey(for: fetchedIndex) == key else { return }
             if (error as? URLError)?.code == .cancelled { return }
             
             if image != nil {
                 self.imageIdentifiers[fetchedIndex].state = .success(imageID: fetchedImageID)
-            } else if let error = error as NSError? {
-                let errorType = self.categorizeError(error)
-                let message = error.userInfo[NSLocalizedDescriptionKey] as? String ?? "Failed to load"
-                self.imageIdentifiers[fetchedIndex].state = .error(type: errorType, message: message)
             } else {
-                self.imageIdentifiers[fetchedIndex].state = .error(type: .unknown, message: "Failed to load")
+                let type = ImageLoadingState.ErrorType.categorize(error)
+                self.imageIdentifiers[fetchedIndex].state = .error(type: type, message: type.message)
             }
             
             self.collectionView.reloadItems(at: [IndexPath(item: fetchedIndex, section: 0)])
@@ -239,7 +237,7 @@ class ViewController: UIViewController {
         if let lastRange = lastLoadedRange {
             let toUnload = lastRange.filter { !shouldLoadRange.contains($0) }
             for i in toUnload {
-                ImageCache.shared.remove(for: imageIdentifiers[i].id)
+                imageLoader.memoryCache.remove(for: imageKey(for: i))
                 // TODO: Further Investigation
                 // Setiap user scroll up akan re-fetch data
                 // Pertimbangan memory/cpu usage nya seperti apa
@@ -252,19 +250,11 @@ class ViewController: UIViewController {
         lastLoadedRange = shouldLoadRange
     }
     
-    func categorizeError(_ error: NSError) -> ImageLoadingState.ErrorType {
-        if error.domain == "NetworkMonitor" {
-            return .noConnection
-        }
-        
-        switch error.code {
-        case NSURLErrorTimedOut:
-            return .timeout
-        case NSURLErrorNotConnectedToInternet, NSURLErrorNetworkConnectionLost:
-            return .noConnection
-        default:
-            return .unknown
-        }
+    func imageKey(for index: Int) -> ImageRequestKey {
+        let scale = view.window?.screen.scale ?? traitCollection.displayScale
+        return ImageRequestKey(imageID: imageIdentifiers[index].id,
+            width: max(1, Int(ceil(currentScreenSize.width * scale))),
+            height: max(1, Int(ceil(currentScreenSize.height * scale))))
     }
     
     deinit {
@@ -330,7 +320,8 @@ extension ViewController: UICollectionViewDataSource {
     
     func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
         let cell = collectionView.dequeueReusableCell(withReuseIdentifier: "ImageCell", for: indexPath) as! ImageCell
-        cell.updateState(imageIdentifiers[indexPath.item].state)
+        cell.updateState(imageIdentifiers[indexPath.item].state,
+                         image: imageLoader.memoryCache.get(for: imageKey(for: indexPath.item)))
         return cell
     }
 }

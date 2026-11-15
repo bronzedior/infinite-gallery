@@ -10,7 +10,7 @@ import UIKit
 class ImageCache {
     static let shared = ImageCache()
     
-    let cache = NSCache<NSNumber, UIImage>()
+    let cache = NSCache<NSString, UIImage>()
     let queue = DispatchQueue(label: "com.infinite-gallery.imagecache", attributes: .concurrent)
     
     init() {
@@ -28,27 +28,24 @@ class ImageCache {
         NotificationCenter.default.removeObserver(self)
     }
     
-    func set(_ image: UIImage, for imageID: Int) {
-        // hipotesis: retina display scale
-        // iphone 17 retina display pixels = 1206 x 2622 (3x scale)
-        // non-retina equivalent = 402 x 874
+    func set(_ image: UIImage, for key: ImageRequestKey) {
         let cost = Int(image.size.width * image.scale * image.size.height * image.scale * 4)
         queue.async(flags: .barrier) {
-            self.cache.setObject(image, forKey: NSNumber(value: imageID), cost: cost)
+            self.cache.setObject(image, forKey: key.cacheKey as NSString, cost: cost)
         }
     }
     
-    func get(for imageID: Int) -> UIImage? {
+    func get(for key: ImageRequestKey) -> UIImage? {
         var image: UIImage?
         queue.sync {
-            image = self.cache.object(forKey: NSNumber(value: imageID))
+            image = self.cache.object(forKey: key.cacheKey as NSString)
         }
         return image
     }
     
-    func remove(for imageID: Int) {
+    func remove(for key: ImageRequestKey) {
         queue.async(flags: .barrier) {
-            self.cache.removeObject(forKey: NSNumber(value: imageID))
+            self.cache.removeObject(forKey: key.cacheKey as NSString)
         }
     }
     

@@ -13,8 +13,30 @@ enum ImageLoadingState: Codable {
     case success(imageID: Int)
     case error(type: ErrorType, message: String)
     
-    enum ErrorType: String, Codable {
+    enum ErrorType: String, Codable, LocalizedError {
         case noConnection, timeout, serverError, decodeFailed, unknown
+
+        static func categorize(_ error: Error?) -> Self {
+            if let type = error as? Self { return type }
+            guard let error = error as? URLError else { return .unknown }
+            switch error.code {
+            case .timedOut: return .timeout
+            case .notConnectedToInternet, .networkConnectionLost: return .noConnection
+            default: return .unknown
+            }
+        }
+
+        var message: String {
+            switch self {
+            case .noConnection: return "No Connection"
+            case .timeout: return "Connection Timeout"
+            case .serverError: return "Server Error"
+            case .decodeFailed: return "Failed to Decode Image"
+            case .unknown: return "Failed to Load Image"
+            }
+        }
+
+        var errorDescription: String? { message }
     }
     
     enum Kind: String, Codable {

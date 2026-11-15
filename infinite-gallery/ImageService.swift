@@ -14,46 +14,35 @@ class ImageService {
         return q
     }()
     
-    // race condition??
     var operations: [Int: ImageFetchOperation] = [:]
     let lock = NSLock()
     
+    @discardableResult
     func fetchImage(
         imageID: Int,
         at index: Int,
         width: Int,
         height: Int,
-        completion: @escaping (Int, Int, UIImage?, Error?) -> Void
-    ) {
+        completion: @escaping (Int, Int, UIImage?, Data?, Error?) -> Void
+    ) -> ImageFetchOperation? {
         if !NetworkMonitor.shared.isConnected {
             DispatchQueue.main.async {
-                let error = NSError(
-                    domain: "ImageService",
-                    code: -2,
-                    userInfo: [NSLocalizedDescriptionKey: "Tidak ada koneksi internet"]
-                )
-                completion(index, imageID, nil, error)
+                completion(index, imageID, nil, nil, ImageLoadingState.ErrorType.noConnection)
             }
-            return
+            return nil
         }
         
         guard CircuitBreaker.shared.canProceed() else {
             DispatchQueue.main.async {
-                let error = NSError(
-                    domain: "ImageService",
-                    code: -3,
-                    userInfo: [NSLocalizedDescriptionKey: "Server sedang bermasalah, coba lagi nanti"]
-                )
-                completion(index, imageID, nil, error)
+                completion(index, imageID, nil, nil, ImageLoadingState.ErrorType.serverError)
             }
-            return
+            return nil
         }
         
-        //        let randomId = Int.random(in: 1...1000000)
-        
-        guard let url = URL(string: "https://picsum.photos/seed/\(imageID)/\(width)/\(height)") else {
-            completion(index, imageID, nil, NSError(domain: "ImageService", code: -1))
-            return
+        guard width > 0, height > 0,
+              let url = URL(string: "https://picsum.photos/seed/\(imageID)/\(width)/\(height)") else {
+            DispatchQueue.main.async { completion(index, imageID, nil, nil, URLError(.badURL)) }
+            return nil
         }
         
         lock.lock()
@@ -64,7 +53,7 @@ class ImageService {
            !existing.isCancelled,
            existing.addCompletion(completion) {
             lock.unlock()
-            return // Coalesce: reuse existing request
+            return existing
         }
         
         operations[index]?.cancel()
@@ -74,9 +63,17 @@ class ImageService {
         assert(added, "addCompletion should succeed for newly created operation")
         
         operations[index] = op
-        lock.unlock()
+
+        op.completionBlock = { [weak self, weak op] in
+            guard let self, let op else { return }
+            self.lock.lock()
+            if self.operations[index] === op { self.operations.removeValue(forKey: index) }
+            self.lock.unlock()
+        }
         
         fetchQueue.addOperation(op)
+        lock.unlock()
+        return op
     }
     
     func cancelFetch(at index: Int) {
